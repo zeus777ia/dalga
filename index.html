@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dalga</title>
+  <style>
+    :root {
+      --ink: #0e1014;
+      --desk: #16191f;
+      --panel: #1c2028;
+      --line: #2c313c;
+      --fg: #e6e8ee;
+      --muted: #9398a6;
+      --copper: #e2a15c;
+      --copper-ink: #2a1c0e;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--ink); color: var(--fg); }
+    body {
+      min-height: 100vh;
+      font-family: "Segoe UI", system-ui, sans-serif;
+    }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 20px 16px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    h1 { margin: 0; font-size: 28px; letter-spacing: -0.03em; }
+    .sub { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+    .last {
+      width: 72px; height: 72px; border-radius: 16px;
+      border: 1px solid var(--line); background: var(--panel);
+      display: grid; place-items: center;
+      font-family: Consolas, ui-monospace, monospace;
+      font-size: 32px; font-weight: 650; color: var(--copper);
+    }
+    .hits { text-align: right; color: var(--muted); font-size: 13px; }
+    .hits b { display: block; color: var(--fg); font-size: 16px; font-family: Consolas, monospace; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; }
+    button.chip, button.ghost {
+      height: 44px; border-radius: 999px; padding: 0 16px;
+      border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+    }
+    button.chip.on, button.go {
+      background: var(--copper); color: var(--copper-ink); border-color: transparent; font-weight: 650;
+    }
+    .deck {
+      position: relative; width: 100%;
+      background: var(--desk); border: 1px solid var(--line); border-radius: 20px;
+      overflow: auto;
+    }
+    canvas { display: block; width: 100%; height: auto; }
+    .panel {
+      border: 1px solid var(--line); background: var(--desk); border-radius: 16px; padding: 16px;
+    }
+    .sliders { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px 16px; }
+    label.sl { display: block; color: var(--muted); font-size: 14px; }
+    label.sl span { float: right; color: var(--fg); font-family: Consolas, monospace; font-size: 12px; }
+    input[type="range"] { width: 100%; accent-color: var(--copper); }
+    .wide { grid-column: 1 / -1; }
+    textarea {
+      width: 100%; min-height: 88px; resize: vertical;
+      border-radius: 16px; border: 1px solid var(--line); background: var(--panel);
+      color: var(--fg); padding: 12px 14px; font: inherit;
+    }
+    textarea:focus { outline: none; border-color: var(--copper); }
+    .note { color: var(--muted); font-size: 13px; margin: 0; }
+    @media (max-width: 800px) {
+      .sliders { grid-template-columns: 1fr 1fr; }
+      .hits { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Dalga</h1>
+        <p class="sub">Bastığın her tuştan bir renk halkası yayılır.</p>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="hits"><b id="count">0</b>vuruş</div>
+        <div class="last" id="last">·</div>
+      </div>
+    </header>
+    <div class="row" id="modes"></div>
+    <div class="deck"><canvas id="board" width="1200" height="414" aria-label="Canlı klavye"></canvas></div>
+    <textarea id="pad" spellcheck="false" placeholder="Buraya yaz. Her harf klavyede bir halka olur."></textarea>
+    <section class="panel">
+      <div class="sliders">
+        <label class="sl">Hız <span id="v-speed"></span><input id="speed" type="range" min="2" max="16" step="0.1" /></label>
+        <label class="sl">Kalınlık <span id="v-width"></span><input id="width" type="range" min="0.3" max="1.8" step="0.01" /></label>
+        <label class="sl">Ömür <span id="v-life"></span><input id="life" type="range" min="0.45" max="3" step="0.05" /></label>
+        <label class="sl">Parlaklık <span id="v-bright"></span><input id="bright" type="range" min="0.45" max="1.6" step="0.01" /></label>
+        <label class="sl wide">Ton <span id="v-hue"></span><input id="hue" type="range" min="0" max="360" step="1" /></label>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="ghost" id="layout" type="button">Türkçe Q</button>
+        <button class="ghost" id="sound" type="button">Tık kapalı</button>
+        <button class="ghost" id="reset" type="button">Sıfırla</button>
+      </div>
+    </section>
+    <p class="note">Bu pencere ekrandaki klavyeyi yakar. Razer / Logitech ışıkları markanın kendi programında kalır.</p>
+  </main>
+  <script>
+    const BOARD_W = 18.65;
+    const ROW_TOP = [0, 1.05, 2.15, 3.25, 4.35, 5.45];
+    const ROW_H = [0.74, 0.98, 0.98, 0.98, 0.98, 0.98];
+    const BOARD_H = ROW_TOP[5] + ROW_H[5];
+    const key = (code, en, tr, x, w, row) => ({ code, en, tr, x, w, row, cx: x + w / 2, cy: ROW_TOP[row] + ROW_H[row] / 2 });
+    const KEYS = [
+      key("Escape","Esc","Esc",0,1,0), key("F1","F1","F1",2,1,0), key("F2","F2","F2",3,1,0), key("F3","F3","F3",4,1,0), key("F4","F4","F4",5,1,0),
+      key("F5","F5","F5",6.5,1,0), key("F6","F6","F6",7.5,1,0), key("F7","F7","F7",8.5,1,0), key("F8","F8","F8",9.5,1,0),
+      key("F9","F9","F9",11,1,0), key("F10","F10","F10",12,1,0), key("F11","F11","F11",13,1,0), key("F12","F12","F12",14,1,0),
+      key("Backquote",'"','"',0,1,1), key("Digit1","1","1",1,1,1), key("Digit2","2","2",2,1,1), key("Digit3","3","3",3,1,1), key("Digit4","4","4",4,1,1),
+      key("Digit5","5","5",5,1,1), key("Digit6","6","6",6,1,1), key("Digit7","7","7",7,1,1), key("Digit8","8","8",8,1,1), key("Digit9","9","9",9,1,1), key("Digit0","0","0",10,1,1),
+      key("Minus","-","*",11,1,1), key("Equal","=","-",12,1,1), key("Backspace","Sil","Sil",13,2,1),
+      key("Tab","Tab","Tab",0,1.5,2), key("KeyQ","Q","Q",1.5,1,2), key("KeyW","W","W",2.5,1,2), key("KeyE","E","E",3.5,1,2), key("KeyR","R","R",4.5,1,2), key("KeyT","T","T",5.5,1,2),
+      key("KeyY","Y","Y",6.5,1,2), key("KeyU","U","U",7.5,1,2), key("KeyI","I","ı",8.5,1,2), key("KeyO","O","O",9.5,1,2), key("KeyP","P","P",10.5,1,2),
+      key("BracketLeft","[","Ğ",11.5,1,2), key("BracketRight","]","Ü",12.5,1,2), key("Backslash","\\",",",13.5,1.5,2),
+      key("CapsLock","Caps","Caps",0,1.75,3), key("KeyA","A","A",1.75,1,3), key("KeyS","S","S",2.75,1,3), key("KeyD","D","D",3.75,1,3), key("KeyF","F","F",4.75,1,3),
+      key("KeyG","G","G",5.75,1,3), key("KeyH","H","H",6.75,1,3), key("KeyJ","J","J",7.75,1,3), key("KeyK","K","K",8.75,1,3), key("KeyL","L","L",9.75,1,3),
+      key("Semicolon",";","Ş",10.75,1,3), key("Quote","'","i",11.75,1,3), key("Enter","Enter","Enter",12.75,2.25,3),
+      key("ShiftLeft","Shift","Shift",0,2.25,4), key("KeyZ","Z","Z",2.25,1,4), key("KeyX","X","X",3.25,1,4), key("KeyC","C","C",4.25,1,4), key("KeyV","V","V",5.25,1,4),
+      key("KeyB","B","B",6.25,1,4), key("KeyN","N","N",7.25,1,4), key("KeyM","M","M",8.25,1,4), key("Comma",",","Ö",9.25,1,4), key("Period",".","Ç",10.25,1,4),
+      key("Slash","/",".",11.25,1,4), key("ShiftRight","Shift","Shift",12.25,2.75,4),
+      key("ControlLeft","Ctrl","Ctrl",0,1.25,5), key("MetaLeft","Win","Win",1.5,1.25,5), key("AltLeft","Alt","Alt",2.75,1.25,5), key("Space","","",4,6.75,5),
+      key("AltRight","Alt","AltGr",10.75,1.25,5), key("ContextMenu","Menü","Menü",12,1.5,5), key("ControlRight","Ctrl","Ctrl",13.5,1.5,5),
+      key("Insert","Ins","Ins",15.55,1,1), key("Home","Home","Home",16.6,1,1), key("PageUp","PgUp","PgUp",17.65,1,1),
+      key("Delete","Del","Del",15.55,1,2), key("End","End","End",16.6,1,2), key("PageDown","PgDn","PgDn",17.65,1,2),
+      key("ArrowUp","↑","↑",16.6,1,4), key("ArrowLeft","←","←",15.55,1,5), key("ArrowDown","↓","↓",16.6,1,5), key("ArrowRight","→","→",17.65,1,5)
+    ];
+    const BY = new Map(KEYS.map((k) => [k.code, k]));
+    const ALIAS = { Numpad0:"Digit0", Numpad1:"Digit1", Numpad2:"Digit2", Numpad3:"Digit3", Numpad4:"Digit4", Numpad5:"Digit5", Numpad6:"Digit6", Numpad7:"Digit7", Numpad8:"Digit8", Numpad9:"Digit9", NumpadDivide:"Slash", NumpadMultiply:"Digit8", NumpadSubtract:"Minus", NumpadAdd:"Equal", NumpadDecimal:"Period", NumpadEnter:"Enter" };
+    const PRESETS = [
+      { id:"rainbow", name:"Gökkuşağı", mode:"rainbow", speed:8.5, width:0.62, life:1.35, hue:198 },
+      { id:"ripple", name:"Halka", mode:"ripple", speed:7.2, width:0.72, life:1.5, hue:188 },
+      { id:"heat", name:"Kor", mode:"heat", speed:4.4, width:1.15, life:1.9, hue:22 },
+      { id:"shock", name:"Şimşek", mode:"shock", speed:13.5, width:0.46, life:0.82, hue:196 },
+      { id:"aurora", name:"Aurora", mode:"aurora", speed:3.4, width:1.4, life:2.45, hue:164 }
+    ];
+    const defaults = { layout:"tr", mode:"rainbow", speed:8.5, width:0.62, life:1.35, hue:198, brightness:1, sound:false };
+    let settings = Object.assign({}, defaults);
+    try { const saved = JSON.parse(localStorage.getItem("dalga-pc-v1") || "null"); if (saved && saved.mode) settings = Object.assign({}, defaults, saved); } catch (e) {}
+    const canvas = document.getElementById("board");
+    const ctx = canvas.getContext("2d");
+    const waves = [];
+    const press = new Map();
+    const lastFire = new Map();
+    let strikes = 0;
+    let userPlayed = false;
+    let ambientIndex = 0;
+    let lastAmbient = 0;
+    let audio = null;
+    const AMBIENT = ["Digit2","KeyE","KeyT","KeyU","KeyO","KeyL","Space","KeyV","ArrowUp","F6"];
+
+    function save() { try { localStorage.setItem("dalga-pc-v1", JSON.stringify(settings)); } catch (e) {} }
+    function findKey(code) { return BY.get(ALIAS[code] || code); }
+    function legend(item) { return settings.layout === "tr" ? item.tr : item.en; }
+    function rect(item, pad, scale) {
+      const gap = Math.max(3, scale * 0.1);
+      return { kx: pad + item.x * scale + gap / 2, ky: pad + ROW_TOP[item.row] * scale + gap / 2, kw: item.w * scale - gap, kh: ROW_H[item.row] * scale - gap };
+    }
+    function amp(dist, age) {
+      if (age < 0) return 0;
+      const radius = age * settings.speed;
+      const remain = Math.max(0, 1 - age / (settings.life * 1.25));
+      if (settings.mode === "shock") {
+        const sigma = Math.max(0.16, settings.width * 0.3);
+        return Math.exp(-((dist - radius) ** 2) / (2 * sigma * sigma)) * remain;
+      }
+      if (settings.mode === "heat") {
+        const sigma = settings.width * 0.8 + age * settings.speed * 0.45;
+        return Math.exp(-(dist * dist) / (2 * sigma * sigma)) * Math.max(0, 1 - age / (settings.life * 1.55));
+      }
+      if (settings.mode === "aurora") {
+        const sigma = settings.width * 1.05 + age * settings.speed * 0.38;
+        const wobble = 0.72 + 0.28 * Math.sin(age * 2.4 + dist * 0.8);
+        return Math.exp(-(dist * dist) / (2 * sigma * sigma)) * wobble * Math.max(0, 1 - age / (settings.life * 1.7));
+      }
+      const sigma = Math.max(0.26, settings.width * 0.7);
+      const ring = Math.exp(-((dist - radius) ** 2) / (2 * sigma * sigma));
+      const bloomSigma = 0.7 + age * settings.speed * 0.34;
+      const bloom = Math.exp(-(dist * dist) / (2 * bloomSigma * bloomSigma)) * Math.exp(-age * 1.65);
+      return Math.min(1.4, ring * 1.08 + bloom * 0.95) * (0.22 + 0.78 * remain);
+    }
+    function hueOf(origin, dist, age) {
+      if (settings.mode === "rainbow") return (origin + dist * 24 + age * 80) % 360;
+      if (settings.mode === "heat") return (6 + Math.max(0, 34 - dist * 4.2)) % 360;
+      if (settings.mode === "aurora") return (settings.hue + Math.sin(age * 1.3 + dist * 0.65) * 34 + dist * 9) % 360;
+      if (settings.mode === "shock") return (settings.hue + dist * 7) % 360;
+      return settings.hue;
+    }
+    function hsl(h, s, l) {
+      s /= 100; l /= 100;
+      const c = (1 - Math.abs(2 * l - 1)) * s;
+      const hp = ((h % 360) + 360) % 360 / 60;
+      const x = c * (1 - Math.abs((hp % 2) - 1));
+      let r = 0, g = 0, b = 0;
+      if (hp < 1) [r, g, b] = [c, x, 0];
+      else if (hp < 2) [r, g, b] = [x, c, 0];
+      else if (hp < 3) [r, g, b] = [0, c, x];
+      else if (hp < 4) [r, g, b] = [0, x, c];
+      else if (hp < 5) [r, g, b] = [x, 0, c];
+      else [r, g, b] = [c, 0, x];
+      const m = l - c / 2;
+      return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
+    }
+    function pushWave(item, hue, when) {
+      waves.push({ x: item.cx, y: item.cy, born: when || performance.now(), hue: hue });
+      if (waves.length > 32) waves.shift();
+    }
+    function blip(hue) {
+      if (!settings.sound) return;
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!audio) audio = new AC();
+      if (audio.state === "suspended") audio.resume();
+      const osc = audio.createOscillator();
+      const gain = audio.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 196 + (hue % 140) * 2.1;
+      gain.gain.setValueAtTime(0.0001, audio.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.035, audio.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + 0.07);
+      osc.connect(gain); gain.connect(audio.destination);
+      osc.start(); osc.stop(audio.currentTime + 0.08);
+    }
+    function strike(item, repeat) {
+      const now = performance.now();
+      if (now - (lastFire.get(item.code) || 0) < 85) return;
+      lastFire.set(item.code, now);
+      press.set(item.code, now);
+      userPlayed = true;
+      const hue = (settings.hue + (settings.mode === "rainbow" ? item.cx * 11 : 0)) % 360;
+      pushWave(item, hue, now);
+      const shown = legend(item) || "␣";
+      const last = document.getElementById("last");
+      last.textContent = shown;
+      last.style.color = "hsl(" + hue + " 78% 64%)";
+      if (!repeat) {
+        strikes += 1;
+        document.getElementById("count").textContent = String(strikes);
+        blip(hue);
+      }
+    }
+    function roundRect(x, y, w, h, r) {
+      const radius = Math.max(1, Math.min(r, w / 2, h / 2));
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.arcTo(x + w, y, x + w, y + h, radius);
+      ctx.arcTo(x + w, y + h, x, y + h, radius);
+      ctx.arcTo(x, y + h, x, y, radius);
+      ctx.arcTo(x, y, x + w, y, radius);
+      ctx.closePath();
+    }
+    function paint(now) {
+      const cssW = canvas.clientWidth || 1100;
+      const cssH = cssW * (BOARD_H / BOARD_W);
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const bw = Math.round(cssW * dpr);
+      const bh = Math.round(cssH * dpr);
+      if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = "#16191f";
+      ctx.fillRect(0, 0, cssW, cssH);
+      const pad = Math.max(10, cssW * 0.018);
+      const scale = (cssW - pad * 2) / BOARD_W;
+      if (!userPlayed && now - lastAmbient > 680) {
+        lastAmbient = now;
+        const item = findKey(AMBIENT[ambientIndex % AMBIENT.length]);
+        ambientIndex += 1;
+        if (item) pushWave(item, (settings.hue + ambientIndex * 28) % 360, now);
+      }
+      for (let i = waves.length - 1; i >= 0; i -= 1) {
+        if ((now - waves[i].born) / 1000 > settings.life * 1.7) waves.splice(i, 1);
+      }
+      const lights = KEYS.map((item) => {
+        let r = 0, g = 0, b = 0, e = 0;
+        for (let w = 0; w < waves.length; w += 1) {
+          const wave = waves[w];
+          const age = (now - wave.born) / 1000;
+          const dist = Math.hypot(item.cx - wave.x, item.cy - wave.y);
+          const a = amp(dist, age);
+          if (a < 0.025) continue;
+          const col = hsl(hueOf(wave.hue, dist, age), settings.mode === "heat" ? 88 : 76, 58);
+          r += col[0] * a; g += col[1] * a; b += col[2] * a; e += a;
+        }
+        const started = press.get(item.code);
+        return { r, g, b, e, depress: started ? Math.max(0, 1 - (now - started) / 150) : 0 };
+      });
+      for (let i = 0; i < KEYS.length; i += 1) {
+        const light = lights[i];
+        if (light.e < 0.04) continue;
+        const box = rect(KEYS[i], pad, scale);
+        const glow = Math.min(1, light.e * settings.brightness);
+        const rad = ctx.createRadialGradient(box.kx + box.kw / 2, box.ky + box.kh / 2, scale * 0.05, box.kx + box.kw / 2, box.ky + box.kh / 2, Math.max(box.kw, box.kh) * 0.95);
+        rad.addColorStop(0, "rgba(" + (light.r | 0) + "," + (light.g | 0) + "," + (light.b | 0) + "," + (0.55 * glow) + ")");
+        rad.addColorStop(1, "rgba(" + (light.r | 0) + "," + (light.g | 0) + "," + (light.b | 0) + ",0)");
+        ctx.fillStyle = rad;
+        ctx.beginPath();
+        ctx.ellipse(box.kx + box.kw / 2, box.ky + box.kh / 2, box.kw * 0.72, box.kh * 0.78, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      for (let i = 0; i < KEYS.length; i += 1) drawCap(KEYS[i], lights[i], pad, scale);
+      requestAnimationFrame(paint);
+    }
+    function drawCap(item, light, pad, scale) {
+      const box = rect(item, pad, scale);
+      if (box.kw < 2 || box.kh < 2) return;
+      const t = Math.min(1, light.e * 0.92 * settings.brightness);
+      const gr = Math.min(255, light.r), gg = Math.min(255, light.g), gb = Math.min(255, light.b);
+      const fr = 34 + (gr - 34) * t, fg = 38 + (gg - 38) * t, fb = 48 + (gb - 48) * t;
+      const radius = Math.min(box.kw, box.kh) * 0.18;
+      const drop = light.depress * Math.min(5, scale * 0.08);
+      const wall = Math.max(2, (1 - light.depress) * scale * 0.07);
+      ctx.fillStyle = "#10131a";
+      roundRect(box.kx, box.ky, box.kw, box.kh, radius); ctx.fill();
+      ctx.fillStyle = "rgb(" + (fr * 0.45 | 0) + "," + (fg * 0.45 | 0) + "," + (fb * 0.5 | 0) + ")";
+      roundRect(box.kx, box.ky + wall * 0.2, box.kw, box.kh - wall * 0.15, radius); ctx.fill();
+      const faceY = box.ky + drop, faceH = box.kh - wall;
+      const grad = ctx.createLinearGradient(0, faceY, 0, faceY + faceH);
+      grad.addColorStop(0, "rgb(" + (Math.min(255, fr + 22) | 0) + "," + (Math.min(255, fg + 22) | 0) + "," + (Math.min(255, fb + 20) | 0) + ")");
+      grad.addColorStop(1, "rgb(" + (fr | 0) + "," + (fg | 0) + "," + (fb | 0) + ")");
+      ctx.fillStyle = grad;
+      roundRect(box.kx, faceY, box.kw, faceH, radius); ctx.fill();
+      const label = legend(item);
+      const lum = (0.2126 * fr + 0.7152 * fg + 0.0722 * fb) / 255;
+      ctx.fillStyle = lum > 0.62 ? "#24180f" : "#e7e9f0";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      if (!label) return;
+      let size = Math.max(8, Math.min(box.kh * 0.34, scale * 0.34));
+      if (label.length > 3) size *= 0.72;
+      ctx.font = "600 " + size + "px Consolas, monospace";
+      while (size > 7 && ctx.measureText(label).width > box.kw * 0.84) {
+        size -= 0.5;
+        ctx.font = "600 " + size + "px Consolas, monospace";
+      }
+      ctx.fillText(label, box.kx + box.kw / 2, faceY + faceH / 2);
+    }
+
+    function bindRange(id, keyName, digits) {
+      const el = document.getElementById(id);
+      const out = document.getElementById("v-" + (id === "bright" ? "bright" : id));
+      el.value = settings[keyName];
+      const show = () => { out.textContent = digits ? Number(el.value).toFixed(digits) : String(Math.round(Number(el.value))); };
+      show();
+      el.addEventListener("input", () => { settings[keyName] = Number(el.value); show(); save(); });
+    }
+    bindRange("speed", "speed", 1);
+    bindRange("width", "width", 2);
+    bindRange("life", "life", 2);
+    bindRange("bright", "brightness", 2);
+    bindRange("hue", "hue", 0);
+
+    const modes = document.getElementById("modes");
+    function renderModes() {
+      modes.innerHTML = "";
+      PRESETS.forEach((preset) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "chip" + (settings.mode === preset.mode ? " on" : "");
+        btn.textContent = preset.name;
+        btn.addEventListener("click", () => {
+          settings.mode = preset.mode; settings.speed = preset.speed; settings.width = preset.width; settings.life = preset.life; settings.hue = preset.hue;
+          ["speed","width","life","hue"].forEach((id) => { document.getElementById(id).value = settings[id === "hue" ? "hue" : id]; document.getElementById(id).dispatchEvent(new Event("input")); });
+          save(); renderModes();
+        });
+        modes.appendChild(btn);
+      });
+      const go = document.createElement("button");
+      go.type = "button"; go.className = "go"; go.textContent = "Dalga gönder";
+      go.addEventListener("click", () => {
+        ["KeyD","KeyA","KeyL","KeyG","KeyA"].forEach((code, index) => {
+          setTimeout(() => { const item = findKey(code); if (item) strike(item, false); }, index * 130);
+        });
+      });
+      modes.appendChild(go);
+    }
+    renderModes();
+
+    document.getElementById("layout").addEventListener("click", () => {
+      settings.layout = settings.layout === "tr" ? "en" : "tr";
+      document.getElementById("layout").textContent = settings.layout === "tr" ? "Türkçe Q" : "İngilizce";
+      save();
+    });
+    document.getElementById("layout").textContent = settings.layout === "tr" ? "Türkçe Q" : "İngilizce";
+    document.getElementById("sound").addEventListener("click", () => {
+      settings.sound = !settings.sound;
+      document.getElementById("sound").textContent = settings.sound ? "Tık açık" : "Tık kapalı";
+      save();
+    });
+    document.getElementById("reset").addEventListener("click", () => {
+      waves.splice(0, waves.length); press.clear(); strikes = 0; userPlayed = false;
+      document.getElementById("count").textContent = "0";
+      document.getElementById("last").textContent = "·";
+      document.getElementById("last").style.color = "";
+      document.getElementById("pad").value = "";
+    });
+    window.addEventListener("keydown", (event) => {
+      const item = findKey(event.code);
+      if (!item) return;
+      const tag = event.target && event.target.tagName;
+      const typing = tag === "TEXTAREA" || tag === "INPUT";
+      if (!typing && (event.code === "Space" || event.code === "Tab" || event.code.indexOf("Arrow") === 0)) event.preventDefault();
+      strike(item, event.repeat);
+    });
+    canvas.addEventListener("pointerdown", (event) => {
+      const bounds = canvas.getBoundingClientRect();
+      const x = event.clientX - bounds.left;
+      const y = event.clientY - bounds.top;
+      const pad = Math.max(10, bounds.width * 0.018);
+      const scale = (bounds.width - pad * 2) / BOARD_W;
+      for (let i = KEYS.length - 1; i >= 0; i -= 1) {
+        const box = rect(KEYS[i], pad, scale);
+        if (x >= box.kx && x <= box.kx + box.kw && y >= box.ky && y <= box.ky + box.kh) { strike(KEYS[i], false); return; }
+      }
+    });
+    const boot = performance.now();
+    AMBIENT.forEach((code, index) => {
+      const item = findKey(code);
+      if (item) pushWave(item, (168 + index * 26) % 360, boot - 520 + index * 110);
+    });
+    lastAmbient = boot;
+    requestAnimationFrame(paint);
+  </script>
+</body>
+</html>
